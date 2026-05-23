@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JSON to Markdown 转换器</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+            font-size: 2.5rem;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 20px;
+        }
+        .panel {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+        .panel-header {
+            background: #f8f9fa;
+            padding: 15px 20px;
+            border-bottom: 1px solid #e9ecef;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .panel-header h2 {
+            font-size: 1.2rem;
+            color: #333;
+        }
+        .panel-body {
+            padding: 20px;
+        }
+        textarea {
+            width: 100%;
+            height: 500px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 14px;
+            resize: vertical;
+            transition: border-color 0.3s;
+        }
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        .btn-success {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+        }
+        .btn-success:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(17, 153, 142, 0.4);
+        }
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        .preview-area {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            min-height: 500px;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        .preview-area table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .preview-area th, .preview-area td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #e9ecef;
+        }
+        .preview-area th {
+            background: #667eea;
+            color: white;
+            font-weight: 600;
+        }
+        .preview-area tr:hover {
+            background: #f8f9fa;
+        }
+        .preview-area code {
+            background: #e9ecef;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 13px;
+        }
+        .error-message {
+            background: #fee;
+            border: 1px solid #fcc;
+            color: #c00;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 10px;
+        }
+        .success-message {
+            background: #efe;
+            border: 1px solid #cfc;
+            color: #0a0;
+            padding: 10px 15px;
+            border-radius: 8px;
+            margin-top: 10px;
+            display: none;
+        }
+        .markdown-source textarea {
+            height: 500px;
+            font-size: 12px;
+        }
+        @media (max-width: 1200px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>JSON to Markdown 转换器</h1>
+        <div class="main-content">
+            <div class="panel">
+                <div class="panel-header">
+                    <h2>输入 JSON</h2>
+                    <div class="btn-group" style="margin: 0;">
+                        <button class="btn btn-secondary" onclick="clearInput()">清空</button>
+                        <button class="btn btn-primary" onclick="convert()">转换</button>
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <textarea id="jsonInput" placeholder="在此输入JSON...">{
+  "id": 12, //必填，发票id
+  "invoice_date": "20260310", //必填，开票日期
+  "invoice_number": "11111111111111", //必填，发票号
+  "actual_amount": "40000", //非必填，实际开票金额
+  "invoice_file": [
+    {
+      "file_name": "1-20240614 (2) (1).pdf",
+      "file_url": "/pdf/pdf_1665_1772433993326.pdf",
+      "file_url_format": "https://ruchang.oss-cn-beijing.aliyuncs.com/pdf/pdf_1665_1772433993326.pdf?Expires=6698467986&OSSAccessKeyId=LTAI5tBLv1Hef4CyCdfj4tHJ&Signature=sy8%2F43ZxfQI82VvybUVlnU8nMV8%3D"
+    },
+    {
+      "file_name": "1-20240614 (3).pdf",
+      "file_url": "/pdf/pdf_1769_1772433993327.pdf",
+      "file_url_format": "https://ruchang.oss-cn-beijing.aliyuncs.com/pdf/pdf_1769_1772433993327.pdf?Expires=6698467986&OSSAccessKeyId=LTAI5tBLv1Hef4CyCdfj4tHJ&Signature=eys31qoOmSZPbMyvuld0xC3RMPI%3D"
+    }
+  ], //必填，附件
+  "organ": {
+    "organ_id": 1,
+    "organ_name": "测试机构"
+  } //必填，机构信息
+}</textarea>
+                    <div id="errorMessage" class="error-message" style="display: none;"></div>
+                </div>
+            </div>
+            <div class="panel">
+                <div class="panel-header">
+                    <h2>Markdown 预览</h2>
+                </div>
+                <div class="panel-body">
+                    <div id="previewArea" class="preview-area">
+                        <p style="color: #999; text-align: center; margin-top: 200px;">点击"转换"按钮查看结果</p>
+                    </div>
+                </div>
+            </div>
+            <div class="panel">
+                <div class="panel-header">
+                    <h2>Markdown 代码</h2>
+                    <button class="btn btn-success" onclick="copyMarkdown()">复制</button>
+                </div>
+                <div class="panel-body">
+                    <textarea id="markdownOutput" readonly placeholder="转换后的Markdown代码将显示在这里..."></textarea>
+                    <div id="successMessage" class="success-message">已复制到剪贴板！</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentMarkdown = '';
+
+        async function convert() {
+            const jsonInput = document.getElementById('jsonInput').value.trim();
+            const errorMessage = document.getElementById('errorMessage');
+            const previewArea = document.getElementById('previewArea');
+            const markdownOutput = document.getElementById('markdownOutput');
+
+            if (!jsonInput) {
+                errorMessage.textContent = '请输入JSON数据';
+                errorMessage.style.display = 'block';
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/convert', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ json: jsonInput })
+                });
+
+                const result = await response.json();
+
+                if (result.error) {
+                    errorMessage.textContent = result.error;
+                    errorMessage.style.display = 'block';
+                    previewArea.innerHTML = '<p style="color: #999; text-align: center; margin-top: 200px;">转换失败</p>';
+                    return;
+                }
+
+                errorMessage.style.display = 'none';
+                currentMarkdown = result.markdown;
+                markdownOutput.value = currentMarkdown;
+
+                // 渲染预览表格
+                previewArea.innerHTML = renderMarkdownTable(currentMarkdown);
+
+            } catch (error) {
+                errorMessage.textContent = '请求失败: ' + error.message;
+                errorMessage.style.display = 'block';
+            }
+        }
+
+        function renderMarkdownTable(markdown) {
+            const lines = markdown.trim().split('\n');
+            if (lines.length < 3) return '<p>无效的Markdown表格</p>';
+
+            let html = '<table>';
+            
+            // 表头
+            const headers = lines[0].split('|').filter(h => h.trim());
+            html += '<thead><tr>';
+            headers.forEach(h => {
+                html += `<th>${h.trim()}</th>`;
+            });
+            html += '</tr></thead>';
+
+            // 表体（跳过第2行的分隔符）
+            html += '<tbody>';
+            for (let i = 2; i < lines.length; i++) {
+                const cells = lines[i].split('|').filter(c => c.trim());
+                if (cells.length > 0) {
+                    html += '<tr>';
+                    cells.forEach(c => {
+                        html += `<td>${c.trim()}</td>`;
+                    });
+                    html += '</tr>';
+                }
+            }
+            html += '</tbody></table>';
+
+            return html;
+        }
+
+        function copyMarkdown() {
+            if (!currentMarkdown) {
+                alert('请先转换JSON');
+                return;
+            }
+
+            navigator.clipboard.writeText(currentMarkdown).then(() => {
+                const successMessage = document.getElementById('successMessage');
+                successMessage.style.display = 'block';
+                setTimeout(() => {
+                    successMessage.style.display = 'none';
+                }, 2000);
+            }).catch(err => {
+                // 降级方案
+                const textarea = document.getElementById('markdownOutput');
+                textarea.select();
+                document.execCommand('copy');
+                const successMessage = document.getElementById('successMessage');
+                successMessage.style.display = 'block';
+                setTimeout(() => {
+                    successMessage.style.display = 'none';
+                }, 2000);
+            });
+        }
+
+        function clearInput() {
+            document.getElementById('jsonInput').value = '';
+            document.getElementById('previewArea').innerHTML = '<p style="color: #999; text-align: center; margin-top: 200px;">点击"转换"按钮查看结果</p>';
+            document.getElementById('markdownOutput').value = '';
+            document.getElementById('errorMessage').style.display = 'none';
+            currentMarkdown = '';
+        }
+    </script>
+</body>
+</html>
