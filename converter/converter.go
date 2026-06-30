@@ -149,44 +149,122 @@ func parseArray(raw json.RawMessage) ([]interface{}, error) {
 func extractComments(jsonStr string) map[string]CommentInfo {
 	comments := make(map[string]CommentInfo)
 
-	// 匹配 "key": value, //注释 格式（基本类型）
-	re := regexp.MustCompile(`"([^"]+)"\s*:\s*[^,\n{}[\]]+,\s*//\s*(.+)`)
-	matches := re.FindAllStringSubmatch(jsonStr, -1)
-	for _, match := range matches {
-		if len(match) >= 3 {
-			key := match[1]
-			comment := strings.TrimSpace(match[2])
-			info := parseComment(comment)
-			comments[key] = info
-		}
-	}
+	// 逐行处理：提取每行的 key 和注释
+	lines := strings.Split(jsonStr, "\n")
+	// 跟踪多行对象/数组的当前 key（用于匹配跨行后的注释）
+	var currentKey string
+	inMultiLine := false
+	braceDepth := 0
+	bracketDepth := 0
 
-	// 匹配对象后的注释: "key": { ... }, //注释 或 "key": { ... } //注释
-	// 使用 (?s) 让 . 匹配换行符
-	reObj := regexp.MustCompile(`(?s)"([^"]+)"\s*:\s*\{.*?\}\s*,?\s*//\s*(.+)`)
-	matchesObj := reObj.FindAllStringSubmatch(jsonStr, -1)
-	for _, match := range matchesObj {
-		if len(match) >= 3 {
-			key := match[1]
-			comment := strings.TrimSpace(match[2])
-			info := parseComment(comment)
-			comments[key] = info
-		}
-	}
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
 
-	// 匹配数组后的注释: "key": [ ... ], //注释 或 "key": [ ... ] //注释
-	reArr := regexp.MustCompile(`(?s)"([^"]+)"\s*:\s*\[.*?\]\s*,?\s*//\s*(.+)`)
-	matchesArr := reArr.FindAllStringSubmatch(jsonStr, -1)
-	for _, match := range matchesArr {
-		if len(match) >= 3 {
-			key := match[1]
-			comment := strings.TrimSpace(match[2])
-			info := parseComment(comment)
-			comments[key] = info
+		// 检查是否是 "key": 开头的行
+		keyMatch := regexp.MustCompile(`^"([^"]+)"\s*:\s*(.*)$`).FindStringSubmatch(trimmed)
+		if keyMatch != nil && !inMultiLine {
+			currentKey = keyMatch[1]
+			rest := keyMatch[2]
+
+			// 检查值是否在同一行完成
+			if isValueComplete(rest) {
+				// 提取注释
+				comment := extractLineComment(rest)
+				if comment != "" {
+					comments[currentKey] = parseComment(comment)
+				}
+				currentKey = ""
+			} else {
+				// 值跨行（对象或数组开始）
+				inMultiLine = true
+				braceDepth = strings.Count(rest, "{") - strings.Count(rest, "}")
+				bracketDepth = strings.Count(rest, "[") - strings.Count(rest, "]")
+			}
+		} else if inMultiLine {
+			// 在多行值中，更新括号深度
+			braceDepth += strings.Count(trimmed, "{") - strings.Count(trimmed, "}")
+			bracketDepth += strings.Count(trimmed, "[") - strings.Count(trimmed, "]")
+
+			if braceDepth <= 0 && bracketDepth <= 0 {
+				// 多行值结束，提取注释
+				inMultiLine = false
+				braceDepth = 0
+				bracketDepth = 0
+				comment := extractLineComment(trimmed)
+				if comment != "" && currentKey != "" {
+					comments[currentKey] = parseComment(comment)
+				}
+				currentKey = ""
+			}
 		}
 	}
 
 	return comments
+}
+
+// isValueComplete 判断值是否在同一行完成
+func isValueComplete(rest string) bool {
+	rest = strings.TrimSpace(rest)
+	if rest == "" {
+		return false
+	}
+
+	// 检查是否以 { 或 [ 开头（对象或数组）
+	if rest[0] == '{' || rest[0] == '[' {
+		// 检查是否在同一行闭合
+		depth := 0
+		inStr := false
+		escaped := false
+		for _, ch := range rest {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' && inStr {
+				escaped = true
+				continue
+			}
+			if ch == '"' {
+				inStr = !inStr
+				continue
+			}
+			if !inStr {
+				if ch == '{' || ch == '[' {
+					depth++
+				} else if ch == '}' || ch == ']' {
+					depth--
+				}
+			}
+		}
+		return depth == 0
+	}
+
+	// 基本类型值（字符串、数字、布尔、null）
+	return true
+}
+
+// extractLineComment 从一行中提取 // 注释内容（不破坏字符串内的 //）
+func extractLineComment(line string) string {
+	inString := false
+	escaped := false
+	for i, ch := range line {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if ch == '\\' && inString {
+			escaped = true
+			continue
+		}
+		if ch == '"' {
+			inString = !inString
+			continue
+		}
+		if !inString && ch == '/' && i+1 < len(line) && rune(line[i+1]) == '/' {
+			return strings.TrimSpace(line[i+2:])
+		}
+	}
+	return ""
 }
 
 // parseComment 解析注释内容，提取必填信息和描述
@@ -220,15 +298,40 @@ func parseComment(comment string) CommentInfo {
 
 // removeComments 移除JSON中的注释
 func removeComments(jsonStr string) string {
-	// 移除行尾的 // 注释
-	re := regexp.MustCompile(`,\s*//[^\n]*`)
-	result := re.ReplaceAllString(jsonStr, ",")
+	var result strings.Builder
+	lines := strings.Split(jsonStr, "\n")
+	for i, line := range lines {
+		cleaned := removeLineComment(line)
+		if i > 0 {
+			result.WriteString("\n")
+		}
+		result.WriteString(cleaned)
+	}
+	return result.String()
+}
 
-	// 处理最后一个字段后有注释的情况（没有逗号）
-	re2 := regexp.MustCompile(`([}\]])\s*//[^\n]*`)
-	result = re2.ReplaceAllString(result, "$1")
-
-	return result
+// removeLineComment 移除单行中的 // 注释（不破坏字符串内的 //）
+func removeLineComment(line string) string {
+	inString := false
+	escaped := false
+	for i, ch := range line {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if ch == '\\' && inString {
+			escaped = true
+			continue
+		}
+		if ch == '"' {
+			inString = !inString
+			continue
+		}
+		if !inString && ch == '/' && i+1 < len(line) && rune(line[i+1]) == '/' {
+			return strings.TrimRight(line[:i], " \t")
+		}
+	}
+	return line
 }
 
 // parseOrderedJSON 递归解析OrderedMap，提取字段信息
